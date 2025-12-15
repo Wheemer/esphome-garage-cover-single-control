@@ -30,7 +30,7 @@ void SingleControlCover::dump_config() {
   ESP_LOGCONFIG(TAG, "  Close Duration: %.1fs", this->close_duration_ / 1e3f);
 }
 
-float SingleControlCover::get_setup_priority() const { return setup_priority::WIFI; }
+float SingleControlCover::get_setup_priority() const { return setup_priority::LATE; }
 
 void SingleControlCover::setup() {
   this->open_endstop_->add_on_state_callback([this](bool state) { this->open_endstop_callback_(state); });
