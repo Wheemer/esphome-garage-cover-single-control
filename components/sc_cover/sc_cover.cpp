@@ -49,6 +49,10 @@ void SingleControlCover::setup() {
     // assume door its ad middle position
     this->position = 0.5f;
   }
+  // Log endstop states with warning level
+  ESP_LOGW(TAG, "SETUP Open Endstop state: %d", this->open_endstop_);
+  ESP_LOGW(TAG, "SETUP Close Endstop state: %d", this->close_endstop_);
+
   this->target_position_ = this->position;
   // publish states
   this->publish_state(false);
