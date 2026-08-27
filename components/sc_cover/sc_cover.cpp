@@ -39,6 +39,8 @@ void SingleControlCover::dump_config() {
     LOG_SENSOR("  ", "Motor Power Sensor", this->motor_power_sensor_);
     ESP_LOGCONFIG(TAG, " Motor Running Threshold: %.1f W", this->motor_running_threshold_);
     ESP_LOGCONFIG(TAG, " Motor Stopped Threshold: %.1f W", this->motor_stopped_threshold_);
+    ESP_LOGCONFIG(TAG, " Motor Opening Maximum: %.1f W", this->motor_opening_max_power_);
+    ESP_LOGCONFIG(TAG, " Motor Closing Minimum: %.1f W", this->motor_closing_min_power_);
   }
 }
 
@@ -253,11 +255,18 @@ bool SingleControlCover::activate_door_() {
   if ((now - this->last_activation_time_) > this->button_press_interval_) {
     // cover state machine (recompute current operation)
     bool stopped = false;
-    if (this->current_operation == COVER_OPERATION_OPENING || this->current_operation == COVER_OPERATION_CLOSING) {
-      // door is moving -> new operation: stop (idle)
+    if (this->current_operation == COVER_OPERATION_OPENING) {
+      // This opener stops when its button is pressed while opening.
       this->current_operation = COVER_OPERATION_IDLE;
       this->operation_started_time_ = 0;
       stopped = true;
+    } else if (this->current_operation == COVER_OPERATION_CLOSING) {
+      // This opener immediately reverses when its button is pressed while closing.
+      this->current_operation = COVER_OPERATION_OPENING;
+      this->last_operation_ = COVER_OPERATION_OPENING;
+      this->target_position_ = COVER_OPEN;
+      this->target_operation_ = TARGET_OPERATION_NONE;
+      this->operation_started_time_ = now;
     } else {
       // door idle, check last direction
       if (this->last_operation_ == COVER_OPERATION_OPENING) {
@@ -275,7 +284,7 @@ bool SingleControlCover::activate_door_() {
     ESP_LOGD(TAG, "Switch activated");
     this->door_activate_button_->press();
 
-    if (!stopped)
+    if (!stopped && this->operation_started_time_ == 0)
       this->operation_started_time_ = now;
 
     // send current state
@@ -358,7 +367,28 @@ uint32_t SingleControlCover::estimate_transition_time_(uint32_t now) const {
   return now - std::min(sample_interval / 2, static_cast<uint32_t>(2000));
 }
 
-void SingleControlCover::start_power_detected_operation_(uint32_t started_at) {
+void SingleControlCover::apply_delayed_transition_(uint32_t now, uint32_t transitioned_at,
+                                                   CoverOperation next_operation) {
+  this->recompute_position_(now);
+  if (this->current_operation == COVER_OPERATION_IDLE || transitioned_at == now)
+    return;
+
+  const float old_rate = this->current_operation == COVER_OPERATION_CLOSING ? -1.0f / this->close_duration_
+                                                                            : 1.0f / this->open_duration_;
+  float new_rate = 0.0f;
+  if (next_operation == COVER_OPERATION_CLOSING)
+    new_rate = -1.0f / this->close_duration_;
+  else if (next_operation == COVER_OPERATION_OPENING)
+    new_rate = 1.0f / this->open_duration_;
+
+  const float correction = (new_rate - old_rate) * (now - transitioned_at);
+  const float minimum = this->is_closed_() ? COVER_CLOSED : 0.01f;
+  const float maximum = this->is_open_() ? COVER_OPEN : 0.99f;
+  this->position = clamp(this->position + correction, minimum, maximum);
+  this->last_recompute_time_ = now;
+}
+
+void SingleControlCover::start_power_detected_operation_(uint32_t started_at, float power) {
   if (this->current_operation != COVER_OPERATION_IDLE)
     return;
 
@@ -366,18 +396,42 @@ void SingleControlCover::start_power_detected_operation_(uint32_t started_at) {
     this->current_operation = COVER_OPERATION_CLOSING;
   } else if (this->is_closed_()) {
     this->current_operation = COVER_OPERATION_OPENING;
+  } else if (power >= this->motor_closing_min_power_) {
+    this->current_operation = COVER_OPERATION_CLOSING;
+  } else if (power <= this->motor_opening_max_power_) {
+    this->current_operation = COVER_OPERATION_OPENING;
   } else if (this->last_operation_ == COVER_OPERATION_OPENING) {
     this->current_operation = COVER_OPERATION_CLOSING;
   } else {
     this->current_operation = COVER_OPERATION_OPENING;
   }
 
+  ESP_LOGI(TAG, "Power-detected movement started %s at %.1f W",
+           this->current_operation == COVER_OPERATION_OPENING ? "opening" : "closing", power);
   this->last_operation_ = this->current_operation;
   this->target_position_ = this->current_operation == COVER_OPERATION_CLOSING ? COVER_CLOSED : COVER_OPEN;
   this->target_operation_ = TARGET_OPERATION_NONE;
   this->operation_started_time_ = started_at;
   this->last_recompute_time_ = started_at;
   this->last_publish_time_ = millis();
+  this->publish_state(false);
+}
+
+void SingleControlCover::change_power_detected_direction_(CoverOperation operation, uint32_t changed_at, float power) {
+  if (this->current_operation == operation)
+    return;
+
+  const uint32_t now = millis();
+  this->apply_delayed_transition_(now, changed_at, operation);
+  ESP_LOGI(TAG, "Motor direction changed to %s at %.1f W", operation == COVER_OPERATION_OPENING ? "opening" : "closing",
+           power);
+  this->current_operation = operation;
+  this->last_operation_ = operation;
+  this->target_position_ = operation == COVER_OPERATION_CLOSING ? COVER_CLOSED : COVER_OPEN;
+  this->target_operation_ = TARGET_OPERATION_NONE;
+  this->operation_started_time_ = changed_at;
+  this->last_recompute_time_ = now;
+  this->last_publish_time_ = now;
   this->publish_state(false);
 }
 
@@ -392,18 +446,22 @@ void SingleControlCover::motor_power_callback_(float power) {
     this->motor_power_initialized_ = true;
     this->motor_running_ = power >= this->motor_running_threshold_;
     if (this->motor_running_)
-      this->start_power_detected_operation_(now);
+      this->start_power_detected_operation_(now, power);
   } else if (!this->motor_running_ && power >= this->motor_running_threshold_) {
     ESP_LOGD(TAG, "Motor started at %.1f W", power);
     this->motor_running_ = true;
-    this->start_power_detected_operation_(transition_time);
+    this->start_power_detected_operation_(transition_time, power);
   } else if (this->motor_running_ && power <= this->motor_stopped_threshold_) {
     ESP_LOGD(TAG, "Motor stopped at %.1f W", power);
     this->motor_running_ = false;
     if (this->current_operation != COVER_OPERATION_IDLE) {
-      this->recompute_position_(transition_time);
+      this->apply_delayed_transition_(now, transition_time, COVER_OPERATION_IDLE);
       this->finish_operation_(true);
     }
+  } else if (this->motor_running_ && this->current_operation == COVER_OPERATION_CLOSING &&
+             power <= this->motor_opening_max_power_) {
+    // The opener reverses directly from closing to opening without an off-power gap.
+    this->change_power_detected_direction_(COVER_OPERATION_OPENING, transition_time, power);
   }
 
   this->last_motor_sample_time_ = now;

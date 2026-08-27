@@ -134,6 +134,8 @@ cover:
     motor_power_sensor: garage_door_motor_power
     motor_running_threshold: 100
     motor_stopped_threshold: 50
+    motor_opening_max_power: 380
+    motor_closing_min_power: 390
     open_endstop: open_endstop
     close_endstop: close_endstop
     button_press_interval: $switch_interval

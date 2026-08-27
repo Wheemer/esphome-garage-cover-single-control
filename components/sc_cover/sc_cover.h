@@ -44,6 +44,8 @@ class SingleControlCover : public cover::Cover, public Component {
   void set_motor_power_sensor(sensor::Sensor *motor_power_sensor) { this->motor_power_sensor_ = motor_power_sensor; }
   void set_motor_running_threshold(float threshold) { this->motor_running_threshold_ = threshold; }
   void set_motor_stopped_threshold(float threshold) { this->motor_stopped_threshold_ = threshold; }
+  void set_motor_opening_max_power(float power) { this->motor_opening_max_power_ = power; }
+  void set_motor_closing_min_power(float power) { this->motor_closing_min_power_ = power; }
   void set_open_endstop(binary_sensor::BinarySensor *open_endstop) { this->open_endstop_ = open_endstop; }
   void set_close_endstop(binary_sensor::BinarySensor *close_endstop) { this->close_endstop_ = close_endstop; }
   void set_open_duration(uint32_t open_duration) { this->open_duration_ = open_duration; }
@@ -70,7 +72,9 @@ class SingleControlCover : public cover::Cover, public Component {
   void close_endstop_callback_(bool state);
   void motor_power_callback_(float power);
   uint32_t estimate_transition_time_(uint32_t now) const;
-  void start_power_detected_operation_(uint32_t started_at);
+  void apply_delayed_transition_(uint32_t now, uint32_t transitioned_at, cover::CoverOperation next_operation);
+  void start_power_detected_operation_(uint32_t started_at, float power);
+  void change_power_detected_direction_(cover::CoverOperation operation, uint32_t changed_at, float power);
 
   button::Button *door_activate_button_;
   binary_sensor::BinarySensor *open_endstop_;
@@ -84,6 +88,8 @@ class SingleControlCover : public cover::Cover, public Component {
   uint32_t operation_timeout_{0};
   float motor_running_threshold_{100.0f};
   float motor_stopped_threshold_{50.0f};
+  float motor_opening_max_power_{380.0f};
+  float motor_closing_min_power_{390.0f};
   bool motor_power_initialized_{false};
   bool motor_running_{false};
   uint32_t last_motor_sample_time_{0};

@@ -16,17 +16,25 @@ CONF_OPERATION_TIMEOUT = "operation_timeout"
 CONF_MOTOR_POWER_SENSOR = "motor_power_sensor"
 CONF_MOTOR_RUNNING_THRESHOLD = "motor_running_threshold"
 CONF_MOTOR_STOPPED_THRESHOLD = "motor_stopped_threshold"
+CONF_MOTOR_OPENING_MAX_POWER = "motor_opening_max_power"
+CONF_MOTOR_CLOSING_MIN_POWER = "motor_closing_min_power"
 
 sc_cover_ns = cg.esphome_ns.namespace("sc_cover")
 SingleControlCover = sc_cover_ns.class_("SingleControlCover", cover.Cover, cg.Component)
 
 
 def validate_motor_thresholds(config):
-    if (
-        CONF_MOTOR_POWER_SENSOR in config
-        and config[CONF_MOTOR_STOPPED_THRESHOLD] >= config[CONF_MOTOR_RUNNING_THRESHOLD]
-    ):
-        raise cv.Invalid("motor_stopped_threshold must be lower than motor_running_threshold")
+    if CONF_MOTOR_POWER_SENSOR in config:
+        stopped = config[CONF_MOTOR_STOPPED_THRESHOLD]
+        running = config[CONF_MOTOR_RUNNING_THRESHOLD]
+        opening_max = config[CONF_MOTOR_OPENING_MAX_POWER]
+        closing_min = config[CONF_MOTOR_CLOSING_MIN_POWER]
+        if stopped >= running:
+            raise cv.Invalid("motor_stopped_threshold must be lower than motor_running_threshold")
+        if running >= opening_max:
+            raise cv.Invalid("motor_running_threshold must be lower than motor_opening_max_power")
+        if opening_max >= closing_min:
+            raise cv.Invalid("motor_opening_max_power must be lower than motor_closing_min_power")
     return config
 
 
@@ -48,6 +56,8 @@ CONFIG_SCHEMA = cv.All(
             cv.Optional(CONF_MOTOR_POWER_SENSOR): cv.use_id(sensor.Sensor),
             cv.Optional(CONF_MOTOR_RUNNING_THRESHOLD, default=100.0): cv.float_range(min=0),
             cv.Optional(CONF_MOTOR_STOPPED_THRESHOLD, default=50.0): cv.float_range(min=0),
+            cv.Optional(CONF_MOTOR_OPENING_MAX_POWER, default=380.0): cv.float_range(min=0),
+            cv.Optional(CONF_MOTOR_CLOSING_MIN_POWER, default=390.0): cv.float_range(min=0),
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
@@ -75,6 +85,8 @@ async def to_code(config):
         cg.add(var.set_motor_power_sensor(power))
         cg.add(var.set_motor_running_threshold(config[CONF_MOTOR_RUNNING_THRESHOLD]))
         cg.add(var.set_motor_stopped_threshold(config[CONF_MOTOR_STOPPED_THRESHOLD]))
+        cg.add(var.set_motor_opening_max_power(config[CONF_MOTOR_OPENING_MAX_POWER]))
+        cg.add(var.set_motor_closing_min_power(config[CONF_MOTOR_CLOSING_MIN_POWER]))
 
     bin = await cg.get_variable(config[CONF_DOOR_ACTIVATE_BUTTON])
     cg.add(var.set_door_activate_button(bin))

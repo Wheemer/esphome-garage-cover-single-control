@@ -22,7 +22,7 @@ state machine:
 * Calculate the number of times the control need to be activated to perform the action requested or reach requested position
 * Actuate the door many times as needed to perform requested action. For example if position in memory is wrong or unknow because a external control stops the door at middle.
 * Detect and update position when the cover is externally commanded from either endstop.
-* Optionally use a motor power sensor to detect external starts and stops at partial positions.
+* Optionally use a motor power sensor to detect external starts and stops at partial positions, including a direct closing-to-opening reversal when each direction has a distinct measured power range.
 * Restore the last calculated position after a reboot when neither endstop is active.
 * Preserve the calculated position when a stop or toggle command is received.
 * Optionally leave a stale moving state after `operation_timeout` without falsely confirming an endstop.
