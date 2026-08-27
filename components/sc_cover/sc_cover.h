@@ -24,6 +24,11 @@ enum CoverTargetOperation : uint8_t {
   TARGET_OPERATION_ACTIVATE_ONCE,
 };
 
+struct SingleControlCoverRestoreState {
+  float position;
+  uint8_t last_operation;
+} __attribute__((packed));
+
 class SingleControlCover : public cover::Cover, public Component {
  public:
   void setup() override;
@@ -34,6 +39,7 @@ class SingleControlCover : public cover::Cover, public Component {
   void set_door_activate_button(button::Button *door_activate_button) { this->door_activate_button_ = door_activate_button; }
   void set_button_press_interval(uint32_t button_press_interval) { this->button_press_interval_ = button_press_interval; }
   void set_setup_delay(uint32_t setup_delay) { this->setup_delay_ = setup_delay; }
+  void set_operation_timeout(uint32_t operation_timeout) { this->operation_timeout_ = operation_timeout; }
   void set_open_endstop(binary_sensor::BinarySensor *open_endstop) { this->open_endstop_ = open_endstop; }
   void set_close_endstop(binary_sensor::BinarySensor *close_endstop) { this->close_endstop_ = close_endstop; }
   void set_open_duration(uint32_t open_duration) { this->open_duration_ = open_duration; }
@@ -43,6 +49,9 @@ class SingleControlCover : public cover::Cover, public Component {
 
  protected:
   void do_setup_();
+  bool sync_from_endstops_();
+  void finish_operation_(bool save_position);
+  void save_state_();
   void control(const cover::CoverCall &call) override;
   bool is_open_() const { return this->open_endstop_->state; }
   bool is_closed_() const { return this->close_endstop_->state; }
@@ -64,13 +73,16 @@ class SingleControlCover : public cover::Cover, public Component {
   uint32_t open_duration_;
   uint32_t close_duration_;
   uint32_t setup_delay_{0};
+  uint32_t operation_timeout_{0};
 
   uint32_t last_activation_time_{0};
   uint32_t last_recompute_time_{0};
   uint32_t last_publish_time_{0};
+  uint32_t operation_started_time_{0};
   float target_position_{0};
   cover::CoverOperation last_operation_{cover::COVER_OPERATION_OPENING};
   CoverTargetOperation target_operation_{TARGET_OPERATION_NONE};
+  ESPPreferenceObject state_pref_;
 };
 
 }  // namespace sc_cover

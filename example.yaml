@@ -29,6 +29,7 @@ substitutions:
   # Then you can set this.  If you do, it should be longer than
   # the debouce time, plus around 50ms.
   setup_delay: 200ms
+  operation_timeout: 35s
 
 esphome:
   name: $device_name
@@ -121,6 +122,7 @@ cover:
     device_class: $cover_device_class
     door_activate_button: cover_button
     setup_delay: $setup_delay
+    operation_timeout: $operation_timeout
     open_endstop: open_endstop
     close_endstop: close_endstop
     button_press_interval: $switch_interval

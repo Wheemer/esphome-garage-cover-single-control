@@ -6,6 +6,7 @@ namespace esphome {
 namespace sc_cover {
 
 static const char *const TAG = "sc_cover.cover";
+static const uint32_t RESTORE_STATE_VERSION = 0x53434301;
 
 using namespace esphome::cover;
 
@@ -14,7 +15,7 @@ CoverTraits SingleControlCover::get_traits() {
   traits.set_supports_stop(true);
   traits.set_supports_position(true);
   traits.set_supports_toggle(true);
-  traits.set_is_assumed_state(false);
+  traits.set_is_assumed_state(true);
   traits.set_supports_tilt(false);
 
   return traits;
@@ -29,6 +30,8 @@ void SingleControlCover::dump_config() {
   ESP_LOGCONFIG(TAG, "  Open Duration: %.1fs", this->open_duration_ / 1e3f);
   LOG_BINARY_SENSOR("  ", "Close Endstop", this->close_endstop_);
   ESP_LOGCONFIG(TAG, "  Close Duration: %.1fs", this->close_duration_ / 1e3f);
+  if (this->operation_timeout_ > 0)
+    ESP_LOGCONFIG(TAG, " Operation Timeout: %.1fs", this->operation_timeout_ / 1e3f);
 }
 
 float SingleControlCover::get_setup_priority() const { return setup_priority::WIFI; }
@@ -37,6 +40,18 @@ void SingleControlCover::setup() {
   this->open_endstop_->add_on_state_callback([this](bool state) { this->open_endstop_callback_(state); });
   this->close_endstop_->add_on_state_callback([this](bool state) { this->close_endstop_callback_(state); });
 
+  this->state_pref_ = this->make_entity_preference<SingleControlCoverRestoreState>(RESTORE_STATE_VERSION);
+  SingleControlCoverRestoreState restore{0.5f, static_cast<uint8_t>(COVER_OPERATION_OPENING)};
+  if (this->state_pref_.load(&restore)) {
+    this->position = clamp(restore.position, 0.0f, 1.0f);
+    if (restore.last_operation == COVER_OPERATION_OPENING || restore.last_operation == COVER_OPERATION_CLOSING)
+      this->last_operation_ = static_cast<CoverOperation>(restore.last_operation);
+  } else {
+    this->position = 0.5f;
+  }
+  this->current_operation = COVER_OPERATION_IDLE;
+  this->target_position_ = this->position;
+  this->last_recompute_time_ = millis();
   this->do_setup_();
 
   if (this->setup_delay_ > 0) {
@@ -45,22 +60,46 @@ void SingleControlCover::setup() {
 }
 
 void SingleControlCover::do_setup_() {
-  if (this->is_open_()) {
-    // door is open
-    this->position = COVER_OPEN;
-    this->last_operation_ = COVER_OPERATION_OPENING;
-  } else if (this->is_closed_()) {
-    // door is closed
-    this->position = COVER_CLOSED;
-    this->last_operation_ = COVER_OPERATION_CLOSING;
-  } else {
-    // door neither closed nor open
-    // assume door its ad middle position
-    this->position = 0.5f;
+  if (!this->sync_from_endstops_()) {
+    if (this->position == COVER_CLOSED)
+      this->position = 0.01f;
+    else if (this->position == COVER_OPEN)
+      this->position = 0.99f;
   }
   this->target_position_ = this->position;
-  // publish states
   this->publish_state(false);
+}
+
+bool SingleControlCover::sync_from_endstops_() {
+  if (this->open_endstop_->has_state() && this->is_open_()) {
+    this->position = COVER_OPEN;
+    this->last_operation_ = COVER_OPERATION_OPENING;
+    this->finish_operation_(true);
+    return true;
+  }
+  if (this->close_endstop_->has_state() && this->is_closed_()) {
+    this->position = COVER_CLOSED;
+    this->last_operation_ = COVER_OPERATION_CLOSING;
+    this->finish_operation_(true);
+    return true;
+  }
+  return false;
+}
+
+void SingleControlCover::finish_operation_(bool save_position) {
+  this->current_operation = COVER_OPERATION_IDLE;
+  this->target_operation_ = TARGET_OPERATION_NONE;
+  this->target_position_ = this->position;
+  this->operation_started_time_ = 0;
+  this->publish_state(false);
+  if (save_position)
+    this->save_state_();
+  this->last_publish_time_ = millis();
+}
+
+void SingleControlCover::save_state_() {
+  SingleControlCoverRestoreState state{this->position, static_cast<uint8_t>(this->last_operation_)};
+  this->state_pref_.save(&state);
 }
 
 void SingleControlCover::control(const CoverCall &call) {
@@ -109,6 +148,14 @@ void SingleControlCover::loop() {
 
   // recompute position every loop cycle
   this->recompute_position_(now);
+
+  if (this->current_operation != COVER_OPERATION_IDLE && this->target_operation_ == TARGET_OPERATION_NONE &&
+      !this->toggle_ && this->operation_timeout_ > 0 &&
+      this->operation_started_time_ != 0 && (now - this->operation_started_time_) >= this->operation_timeout_) {
+    ESP_LOGW(TAG, "Movement timed out without reaching an endstop; keeping the estimated position");
+    this->finish_operation_(true);
+    return;
+  }
 
   if (this->toggle_) {
     // toggle requested
@@ -179,7 +226,9 @@ void SingleControlCover::recompute_position_(const uint32_t now) {
 
     // calculate position
     float change = (dir * (now - this->last_recompute_time_)) / action_dur;
-    this->position = clamp(this->position + change, 0.0f, 1.0f);
+    const float minimum = this->is_closed_() ? COVER_CLOSED : 0.01f;
+    const float maximum = this->is_open_() ? COVER_OPEN : 0.99f;
+    this->position = clamp(this->position + change, minimum, maximum);
   }
 
   // store time
@@ -192,9 +241,12 @@ bool SingleControlCover::activate_door_() {
 
   if ((now - this->last_activation_time_) > this->button_press_interval_) {
     // cover state machine (recompute current operation)
+    bool stopped = false;
     if (this->current_operation == COVER_OPERATION_OPENING || this->current_operation == COVER_OPERATION_CLOSING) {
       // door is moving -> new operation: stop (idle)
       this->current_operation = COVER_OPERATION_IDLE;
+      this->operation_started_time_ = 0;
+      stopped = true;
     } else {
       // door idle, check last direction
       if (this->last_operation_ == COVER_OPERATION_OPENING) {
@@ -212,8 +264,13 @@ bool SingleControlCover::activate_door_() {
     ESP_LOGD(TAG, "Switch activated");
     this->door_activate_button_->press();
 
+    if (!stopped)
+      this->operation_started_time_ = now;
+
     // send current state
     this->publish_state(false);
+    if (stopped)
+      this->save_state_();
     this->last_publish_time_ = now;
     this->last_recompute_time_ = now;
     this->last_activation_time_ = now;
@@ -234,7 +291,10 @@ void SingleControlCover::open_endstop_callback_(bool state) {
     this->current_operation = COVER_OPERATION_IDLE;
     this->last_operation_ = COVER_OPERATION_OPENING;
     this->position = COVER_OPEN;
+    this->target_position_ = COVER_OPEN;
+    this->operation_started_time_ = 0;
     this->publish_state(false);
+    this->save_state_();
   } else {
     // open end stop leaving
     if (this->current_operation != COVER_OPERATION_CLOSING) {
@@ -244,6 +304,7 @@ void SingleControlCover::open_endstop_callback_(bool state) {
       this->target_position_ = COVER_CLOSED;
       this->last_activation_time_ = millis();
       this->last_recompute_time_ = this->last_activation_time_;
+      this->operation_started_time_ = this->last_activation_time_;
     }
   }
 }
@@ -256,7 +317,10 @@ void SingleControlCover::close_endstop_callback_(bool state) {
     this->current_operation = COVER_OPERATION_IDLE;
     this->last_operation_ = COVER_OPERATION_CLOSING;
     this->position = COVER_CLOSED;
+    this->target_position_ = COVER_CLOSED;
+    this->operation_started_time_ = 0;
     this->publish_state(false);
+    this->save_state_();
   } else {
     // close end stop leaving
     if (this->current_operation != COVER_OPERATION_OPENING) {
@@ -266,6 +330,7 @@ void SingleControlCover::close_endstop_callback_(bool state) {
       this->target_position_ = COVER_OPEN;
       this->last_activation_time_ = millis();
       this->last_recompute_time_ = this->last_activation_time_;
+      this->operation_started_time_ = this->last_activation_time_;
     }
   }
 }

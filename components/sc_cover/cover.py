@@ -12,6 +12,7 @@ from esphome.const import (
 CONF_DOOR_ACTIVATE_BUTTON = "door_activate_button"
 CONF_BUTTON_PRESS_INTERVAL = "button_press_interval"
 CONF_SETUP_DELAY = "setup_delay"
+CONF_OPERATION_TIMEOUT = "operation_timeout"
 
 sc_cover_ns = cg.esphome_ns.namespace("sc_cover")
 SingleControlCover = sc_cover_ns.class_("SingleControlCover", cover.Cover, cg.Component)
@@ -29,6 +30,7 @@ CONFIG_SCHEMA = (
             cv.Required(CONF_CLOSE_ENDSTOP): cv.use_id(binary_sensor.BinarySensor),
             cv.Required(CONF_CLOSE_DURATION): cv.positive_time_period_milliseconds,
             cv.Optional(CONF_SETUP_DELAY): cv.positive_time_period_milliseconds,
+            cv.Optional(CONF_OPERATION_TIMEOUT): cv.positive_time_period_milliseconds,
         }
     )
     .extend(cv.COMPONENT_SCHEMA)
@@ -43,6 +45,10 @@ async def to_code(config):
     setup_delay = config.get(CONF_SETUP_DELAY)
     if setup_delay:
         cg.add(var.set_setup_delay(setup_delay))
+
+    operation_timeout = config.get(CONF_OPERATION_TIMEOUT)
+    if operation_timeout:
+        cg.add(var.set_operation_timeout(operation_timeout))
 
     bin = await cg.get_variable(config[CONF_DOOR_ACTIVATE_BUTTON])
     cg.add(var.set_door_activate_button(bin))
