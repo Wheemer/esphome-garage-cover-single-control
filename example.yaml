@@ -139,6 +139,7 @@ cover:
     open_endstop: open_endstop
     close_endstop: close_endstop
     button_press_interval: $switch_interval
-    closing_stop_delay: 500ms
+    # 100ms relay pulse followed by a full 1s released pause before pulse two.
+    closing_stop_delay: 1100ms
     open_duration: $open_duration
     close_duration: $close_duration

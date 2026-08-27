@@ -48,7 +48,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Required(
                 CONF_BUTTON_PRESS_INTERVAL
             ): cv.positive_time_period_milliseconds,
-            cv.Optional(CONF_CLOSING_STOP_DELAY, default="500ms"): cv.positive_time_period_milliseconds,
+            cv.Optional(CONF_CLOSING_STOP_DELAY, default="1100ms"): cv.positive_time_period_milliseconds,
             cv.Required(CONF_OPEN_ENDSTOP): cv.use_id(binary_sensor.BinarySensor),
             cv.Required(CONF_OPEN_DURATION): cv.positive_time_period_milliseconds,
             cv.Required(CONF_CLOSE_ENDSTOP): cv.use_id(binary_sensor.BinarySensor),

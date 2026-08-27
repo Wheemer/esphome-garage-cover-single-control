@@ -84,7 +84,7 @@ class SingleControlCover : public cover::Cover, public Component {
   sensor::Sensor *motor_power_sensor_{nullptr};
   bool toggle_{false};
   uint32_t button_press_interval_;
-  uint32_t closing_stop_delay_{500};
+  uint32_t closing_stop_delay_{1100};
   uint32_t open_duration_;
   uint32_t close_duration_;
   uint32_t setup_delay_{0};

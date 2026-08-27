@@ -35,4 +35,4 @@ state machine:
 
 When configured, `motor_power_sensor` uses separate running and stopped thresholds for hysteresis. Power transitions are timestamped between adjacent samples so brief reporting latency does not accumulate directly into the calculated position.
 
-For openers that reverse when pressed while closing, `closing_stop_delay` sends the required second press after the reversal. Partial closing targets compensate for that brief reverse travel so the door stops near the requested position.
+For openers that reverse when pressed while closing, `closing_stop_delay` sends the required second press after the reversal. It measures from the start of the first relay pulse to the start of the second; the default 1100 ms allows a 100 ms pulse followed by a full 1 second released pause. Partial closing targets compensate for that brief reverse travel so the door stops near the requested position.
