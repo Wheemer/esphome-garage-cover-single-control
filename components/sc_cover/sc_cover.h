@@ -5,6 +5,7 @@
 #include "esphome/components/binary_sensor/binary_sensor.h"
 #include "esphome/components/button/button.h"
 #include "esphome/components/cover/cover.h"
+#include "esphome/components/sensor/sensor.h"
 
 namespace esphome {
 namespace sc_cover {
@@ -40,6 +41,9 @@ class SingleControlCover : public cover::Cover, public Component {
   void set_button_press_interval(uint32_t button_press_interval) { this->button_press_interval_ = button_press_interval; }
   void set_setup_delay(uint32_t setup_delay) { this->setup_delay_ = setup_delay; }
   void set_operation_timeout(uint32_t operation_timeout) { this->operation_timeout_ = operation_timeout; }
+  void set_motor_power_sensor(sensor::Sensor *motor_power_sensor) { this->motor_power_sensor_ = motor_power_sensor; }
+  void set_motor_running_threshold(float threshold) { this->motor_running_threshold_ = threshold; }
+  void set_motor_stopped_threshold(float threshold) { this->motor_stopped_threshold_ = threshold; }
   void set_open_endstop(binary_sensor::BinarySensor *open_endstop) { this->open_endstop_ = open_endstop; }
   void set_close_endstop(binary_sensor::BinarySensor *close_endstop) { this->close_endstop_ = close_endstop; }
   void set_open_duration(uint32_t open_duration) { this->open_duration_ = open_duration; }
@@ -64,16 +68,25 @@ class SingleControlCover : public cover::Cover, public Component {
 
   void open_endstop_callback_(bool state);
   void close_endstop_callback_(bool state);
+  void motor_power_callback_(float power);
+  uint32_t estimate_transition_time_(uint32_t now) const;
+  void start_power_detected_operation_(uint32_t started_at);
 
   button::Button *door_activate_button_;
   binary_sensor::BinarySensor *open_endstop_;
   binary_sensor::BinarySensor *close_endstop_;
+  sensor::Sensor *motor_power_sensor_{nullptr};
   bool toggle_{false};
   uint32_t button_press_interval_;
   uint32_t open_duration_;
   uint32_t close_duration_;
   uint32_t setup_delay_{0};
   uint32_t operation_timeout_{0};
+  float motor_running_threshold_{100.0f};
+  float motor_stopped_threshold_{50.0f};
+  bool motor_power_initialized_{false};
+  bool motor_running_{false};
+  uint32_t last_motor_sample_time_{0};
 
   uint32_t last_activation_time_{0};
   uint32_t last_recompute_time_{0};

@@ -2,6 +2,9 @@
 #include "esphome/core/log.h"
 #include "esphome/core/hal.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace esphome {
 namespace sc_cover {
 
@@ -32,6 +35,11 @@ void SingleControlCover::dump_config() {
   ESP_LOGCONFIG(TAG, "  Close Duration: %.1fs", this->close_duration_ / 1e3f);
   if (this->operation_timeout_ > 0)
     ESP_LOGCONFIG(TAG, " Operation Timeout: %.1fs", this->operation_timeout_ / 1e3f);
+  if (this->motor_power_sensor_ != nullptr) {
+    LOG_SENSOR("  ", "Motor Power Sensor", this->motor_power_sensor_);
+    ESP_LOGCONFIG(TAG, " Motor Running Threshold: %.1f W", this->motor_running_threshold_);
+    ESP_LOGCONFIG(TAG, " Motor Stopped Threshold: %.1f W", this->motor_stopped_threshold_);
+  }
 }
 
 float SingleControlCover::get_setup_priority() const { return setup_priority::WIFI; }
@@ -39,6 +47,9 @@ float SingleControlCover::get_setup_priority() const { return setup_priority::WI
 void SingleControlCover::setup() {
   this->open_endstop_->add_on_state_callback([this](bool state) { this->open_endstop_callback_(state); });
   this->close_endstop_->add_on_state_callback([this](bool state) { this->close_endstop_callback_(state); });
+  if (this->motor_power_sensor_ != nullptr) {
+    this->motor_power_sensor_->add_on_state_callback([this](float power) { this->motor_power_callback_(power); });
+  }
 
   this->state_pref_ = this->make_entity_preference<SingleControlCoverRestoreState>(RESTORE_STATE_VERSION);
   SingleControlCoverRestoreState restore{0.5f, static_cast<uint8_t>(COVER_OPERATION_OPENING)};
@@ -305,6 +316,8 @@ void SingleControlCover::open_endstop_callback_(bool state) {
       this->last_activation_time_ = millis();
       this->last_recompute_time_ = this->last_activation_time_;
       this->operation_started_time_ = this->last_activation_time_;
+      this->publish_state(false);
+      this->last_publish_time_ = this->last_activation_time_;
     }
   }
 }
@@ -331,8 +344,69 @@ void SingleControlCover::close_endstop_callback_(bool state) {
       this->last_activation_time_ = millis();
       this->last_recompute_time_ = this->last_activation_time_;
       this->operation_started_time_ = this->last_activation_time_;
+      this->publish_state(false);
+      this->last_publish_time_ = this->last_activation_time_;
     }
   }
+}
+
+uint32_t SingleControlCover::estimate_transition_time_(uint32_t now) const {
+  if (this->last_motor_sample_time_ == 0)
+    return now;
+
+  const uint32_t sample_interval = now - this->last_motor_sample_time_;
+  return now - std::min(sample_interval / 2, static_cast<uint32_t>(2000));
+}
+
+void SingleControlCover::start_power_detected_operation_(uint32_t started_at) {
+  if (this->current_operation != COVER_OPERATION_IDLE)
+    return;
+
+  if (this->is_open_()) {
+    this->current_operation = COVER_OPERATION_CLOSING;
+  } else if (this->is_closed_()) {
+    this->current_operation = COVER_OPERATION_OPENING;
+  } else if (this->last_operation_ == COVER_OPERATION_OPENING) {
+    this->current_operation = COVER_OPERATION_CLOSING;
+  } else {
+    this->current_operation = COVER_OPERATION_OPENING;
+  }
+
+  this->last_operation_ = this->current_operation;
+  this->target_position_ = this->current_operation == COVER_OPERATION_CLOSING ? COVER_CLOSED : COVER_OPEN;
+  this->target_operation_ = TARGET_OPERATION_NONE;
+  this->operation_started_time_ = started_at;
+  this->last_recompute_time_ = started_at;
+  this->last_publish_time_ = millis();
+  this->publish_state(false);
+}
+
+void SingleControlCover::motor_power_callback_(float power) {
+  if (std::isnan(power))
+    return;
+
+  const uint32_t now = millis();
+  const uint32_t transition_time = this->estimate_transition_time_(now);
+
+  if (!this->motor_power_initialized_) {
+    this->motor_power_initialized_ = true;
+    this->motor_running_ = power >= this->motor_running_threshold_;
+    if (this->motor_running_)
+      this->start_power_detected_operation_(now);
+  } else if (!this->motor_running_ && power >= this->motor_running_threshold_) {
+    ESP_LOGD(TAG, "Motor started at %.1f W", power);
+    this->motor_running_ = true;
+    this->start_power_detected_operation_(transition_time);
+  } else if (this->motor_running_ && power <= this->motor_stopped_threshold_) {
+    ESP_LOGD(TAG, "Motor stopped at %.1f W", power);
+    this->motor_running_ = false;
+    if (this->current_operation != COVER_OPERATION_IDLE) {
+      this->recompute_position_(transition_time);
+      this->finish_operation_(true);
+    }
+  }
+
+  this->last_motor_sample_time_ = now;
 }
 
 }  // namespace sc_cover

@@ -21,7 +21,8 @@ state machine:
 * Position control
 * Calculate the number of times the control need to be activated to perform the action requested or reach requested position
 * Actuate the door many times as needed to perform requested action. For example if position in memory is wrong or unknow because a external control stops the door at middle.
-* Detect and update position when the cover is externally commanded. Only if door is full open or closed when commanded or reachs end stop sensors.
+* Detect and update position when the cover is externally commanded from either endstop.
+* Optionally use a motor power sensor to detect external starts and stops at partial positions.
 * Restore the last calculated position after a reboot when neither endstop is active.
 * Preserve the calculated position when a stop or toggle command is received.
 * Optionally leave a stale moving state after `operation_timeout` without falsely confirming an endstop.
@@ -32,6 +33,4 @@ state machine:
 * Use this repo as an [external component](https://esphome.io/components/external_components)
 * Check the [example](example.yaml) provided in this repo
 
-## TODO
-
-* Detect an external mid-travel stop that does not pass through ESPHome. This cannot be inferred without an additional input event.
+When configured, `motor_power_sensor` uses separate running and stopped thresholds for hysteresis. Power transitions are timestamped between adjacent samples so brief reporting latency does not accumulate directly into the calculated position.

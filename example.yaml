@@ -101,6 +101,14 @@ binary_sensor:
       then:
         - cover.toggle: $cover_id
 
+sensor:
+  # Optional: import a power-monitoring plug from Home Assistant to detect
+  # externally initiated starts and stops while the door is between endstops.
+  - platform: homeassistant
+    id: garage_door_motor_power
+    entity_id: sensor.garage_door_motor_power
+    internal: true
+
 output:
   - platform: gpio
     pin: $cover_switch_pin
@@ -123,6 +131,9 @@ cover:
     door_activate_button: cover_button
     setup_delay: $setup_delay
     operation_timeout: $operation_timeout
+    motor_power_sensor: garage_door_motor_power
+    motor_running_threshold: 100
+    motor_stopped_threshold: 50
     open_endstop: open_endstop
     close_endstop: close_endstop
     button_press_interval: $switch_interval
