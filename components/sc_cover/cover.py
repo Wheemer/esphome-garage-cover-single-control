@@ -11,6 +11,7 @@ from esphome.const import (
 
 CONF_DOOR_ACTIVATE_BUTTON = "door_activate_button"
 CONF_BUTTON_PRESS_INTERVAL = "button_press_interval"
+CONF_CLOSING_STOP_DELAY = "closing_stop_delay"
 CONF_SETUP_DELAY = "setup_delay"
 CONF_OPERATION_TIMEOUT = "operation_timeout"
 CONF_MOTOR_POWER_SENSOR = "motor_power_sensor"
@@ -47,6 +48,7 @@ CONFIG_SCHEMA = cv.All(
             cv.Required(
                 CONF_BUTTON_PRESS_INTERVAL
             ): cv.positive_time_period_milliseconds,
+            cv.Optional(CONF_CLOSING_STOP_DELAY, default="500ms"): cv.positive_time_period_milliseconds,
             cv.Required(CONF_OPEN_ENDSTOP): cv.use_id(binary_sensor.BinarySensor),
             cv.Required(CONF_OPEN_DURATION): cv.positive_time_period_milliseconds,
             cv.Required(CONF_CLOSE_ENDSTOP): cv.use_id(binary_sensor.BinarySensor),
@@ -91,6 +93,7 @@ async def to_code(config):
     bin = await cg.get_variable(config[CONF_DOOR_ACTIVATE_BUTTON])
     cg.add(var.set_door_activate_button(bin))
     cg.add(var.set_button_press_interval(config[CONF_BUTTON_PRESS_INTERVAL]))
+    cg.add(var.set_closing_stop_delay(config[CONF_CLOSING_STOP_DELAY]))
 
     bin = await cg.get_variable(config[CONF_OPEN_ENDSTOP])
     cg.add(var.set_open_endstop(bin))

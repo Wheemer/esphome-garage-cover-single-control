@@ -34,3 +34,5 @@ state machine:
 * Check the [example](example.yaml) provided in this repo
 
 When configured, `motor_power_sensor` uses separate running and stopped thresholds for hysteresis. Power transitions are timestamped between adjacent samples so brief reporting latency does not accumulate directly into the calculated position.
+
+For openers that reverse when pressed while closing, `closing_stop_delay` sends the required second press after the reversal. Partial closing targets compensate for that brief reverse travel so the door stops near the requested position.

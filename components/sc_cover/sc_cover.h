@@ -39,6 +39,7 @@ class SingleControlCover : public cover::Cover, public Component {
 
   void set_door_activate_button(button::Button *door_activate_button) { this->door_activate_button_ = door_activate_button; }
   void set_button_press_interval(uint32_t button_press_interval) { this->button_press_interval_ = button_press_interval; }
+  void set_closing_stop_delay(uint32_t closing_stop_delay) { this->closing_stop_delay_ = closing_stop_delay; }
   void set_setup_delay(uint32_t setup_delay) { this->setup_delay_ = setup_delay; }
   void set_operation_timeout(uint32_t operation_timeout) { this->operation_timeout_ = operation_timeout; }
   void set_motor_power_sensor(sensor::Sensor *motor_power_sensor) { this->motor_power_sensor_ = motor_power_sensor; }
@@ -67,6 +68,7 @@ class SingleControlCover : public cover::Cover, public Component {
   void recompute_position_(const uint32_t now);
 
   bool activate_door_();
+  bool stop_door_();
 
   void open_endstop_callback_(bool state);
   void close_endstop_callback_(bool state);
@@ -82,6 +84,7 @@ class SingleControlCover : public cover::Cover, public Component {
   sensor::Sensor *motor_power_sensor_{nullptr};
   bool toggle_{false};
   uint32_t button_press_interval_;
+  uint32_t closing_stop_delay_{500};
   uint32_t open_duration_;
   uint32_t close_duration_;
   uint32_t setup_delay_{0};
@@ -92,6 +95,7 @@ class SingleControlCover : public cover::Cover, public Component {
   float motor_closing_min_power_{390.0f};
   bool motor_power_initialized_{false};
   bool motor_running_{false};
+  bool closing_stop_pending_{false};
   uint32_t last_motor_sample_time_{0};
 
   uint32_t last_activation_time_{0};

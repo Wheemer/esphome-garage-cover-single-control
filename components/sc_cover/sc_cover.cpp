@@ -29,6 +29,7 @@ void SingleControlCover::dump_config() {
   LOG_BUTTON(" ", "Door Switch", this->door_activate_button_);
   ESP_LOGCONFIG(TAG, " Setup delay: %.1fs", this->setup_delay_ /1e3f);
   ESP_LOGCONFIG(TAG, " Switch Interval:  %.1fs", this->button_press_interval_ / 1e3f);
+  ESP_LOGCONFIG(TAG, " Closing Stop Delay: %.1fs", this->closing_stop_delay_ / 1e3f);
   LOG_BINARY_SENSOR("  ", "Open Endstop", this->open_endstop_);
   ESP_LOGCONFIG(TAG, "  Open Duration: %.1fs", this->open_duration_ / 1e3f);
   LOG_BINARY_SENSOR("  ", "Close Endstop", this->close_endstop_);
@@ -186,7 +187,10 @@ void SingleControlCover::loop() {
 
   else if ((this->target_operation_ != TARGET_OPERATION_NONE) && !this->is_operation_done_()) {
     // target operation not done -> activate switch
-    this->activate_door_();
+    if (this->target_operation_ == TARGET_OPERATION_IDLE)
+      this->stop_door_();
+    else
+      this->activate_door_();
   }
 
   else if (this->is_operation_done_()) {
@@ -200,7 +204,7 @@ void SingleControlCover::loop() {
 
     // let door stop by itself if FULL_OPEN or FULL_CLOSE requested
     if (this->target_position_ != COVER_CLOSED && this->target_position_ != COVER_OPEN) {
-      this->activate_door_();
+      this->stop_door_();
     }
   }
 
@@ -212,8 +216,19 @@ void SingleControlCover::loop() {
 }
 
 bool SingleControlCover::is_at_target_() const {
-  return ((this->current_operation == COVER_OPERATION_OPENING && this->position >= this->target_position_) ||
-          (this->current_operation == COVER_OPERATION_CLOSING && this->position <= this->target_position_));
+  if (this->current_operation == COVER_OPERATION_OPENING)
+    return this->position >= this->target_position_;
+
+  if (this->current_operation == COVER_OPERATION_CLOSING) {
+    float stop_position = this->target_position_;
+    if (stop_position != COVER_CLOSED && stop_position != COVER_OPEN) {
+      const float reverse_travel = static_cast<float>(this->closing_stop_delay_) / this->open_duration_;
+      stop_position = std::max(0.01f, stop_position - reverse_travel);
+    }
+    return this->position <= stop_position;
+  }
+
+  return false;
 }
 
 bool SingleControlCover::is_operation_done_() const {
@@ -303,9 +318,52 @@ bool SingleControlCover::activate_door_() {
   return false;
 }
 
+bool SingleControlCover::stop_door_() {
+  if (this->current_operation == COVER_OPERATION_IDLE || this->closing_stop_pending_)
+    return false;
+
+  if (this->current_operation != COVER_OPERATION_CLOSING)
+    return this->activate_door_();
+
+  const uint32_t now = millis();
+  if ((now - this->last_activation_time_) <= this->button_press_interval_)
+    return false;
+
+  // This opener reverses on the first press while closing. A second press is
+  // required to stop the resulting opening movement.
+  ESP_LOGI(TAG, "Stopping closing movement with two button presses");
+  this->closing_stop_pending_ = true;
+  this->target_operation_ = TARGET_OPERATION_NONE;
+  this->current_operation = COVER_OPERATION_OPENING;
+  this->last_operation_ = COVER_OPERATION_OPENING;
+  this->operation_started_time_ = now;
+  this->door_activate_button_->press();
+  this->publish_state(false);
+  this->last_publish_time_ = now;
+  this->last_recompute_time_ = now;
+  this->last_activation_time_ = now;
+
+  this->set_timeout("closing-stop-second-press", this->closing_stop_delay_, [this] {
+    if (!this->closing_stop_pending_)
+      return;
+
+    const uint32_t stopped_at = millis();
+    this->recompute_position_(stopped_at);
+    ESP_LOGI(TAG, "Sending second button press to stop after closing reversal");
+    this->door_activate_button_->press();
+    this->closing_stop_pending_ = false;
+    this->last_activation_time_ = stopped_at;
+    this->last_recompute_time_ = stopped_at;
+    this->finish_operation_(true);
+  });
+  return true;
+}
+
 void SingleControlCover::open_endstop_callback_(bool state) {
   if (state) {
     // open end stop reached
+    this->closing_stop_pending_ = false;
+    this->cancel_timeout("closing-stop-second-press");
     this->last_activation_time_ = millis();
     this->last_recompute_time_ = this->last_activation_time_;
     this->current_operation = COVER_OPERATION_IDLE;
@@ -334,6 +392,8 @@ void SingleControlCover::open_endstop_callback_(bool state) {
 void SingleControlCover::close_endstop_callback_(bool state) {
   if (state) {
     // close end stop reached
+    this->closing_stop_pending_ = false;
+    this->cancel_timeout("closing-stop-second-press");
     this->last_activation_time_ = millis();
     this->last_recompute_time_ = this->last_activation_time_;
     this->current_operation = COVER_OPERATION_IDLE;

@@ -139,5 +139,6 @@ cover:
     open_endstop: open_endstop
     close_endstop: close_endstop
     button_press_interval: $switch_interval
+    closing_stop_delay: 500ms
     open_duration: $open_duration
     close_duration: $close_duration
