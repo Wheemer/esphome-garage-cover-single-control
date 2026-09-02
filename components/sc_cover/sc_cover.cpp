@@ -10,6 +10,7 @@ namespace sc_cover {
 
 static const char *const TAG = "sc_cover.cover";
 static const uint32_t RESTORE_STATE_VERSION = 0x53434301;
+static const uint32_t CLOSING_STOP_MARGIN_MS = 200;
 
 using namespace esphome::cover;
 
@@ -29,7 +30,7 @@ void SingleControlCover::dump_config() {
   LOG_BUTTON(" ", "Door Switch", this->door_activate_button_);
   ESP_LOGCONFIG(TAG, " Setup delay: %.1fs", this->setup_delay_ /1e3f);
   ESP_LOGCONFIG(TAG, " Switch Interval:  %.1fs", this->button_press_interval_ / 1e3f);
-  ESP_LOGCONFIG(TAG, " Closing Stop Delay: %.1fs", this->closing_stop_delay_ / 1e3f);
+  ESP_LOGCONFIG(TAG, " Closing Stop Delay: %.1fs", this->effective_closing_stop_delay_() / 1e3f);
   LOG_BINARY_SENSOR("  ", "Open Endstop", this->open_endstop_);
   ESP_LOGCONFIG(TAG, "  Open Duration: %.1fs", this->open_duration_ / 1e3f);
   LOG_BINARY_SENSOR("  ", "Close Endstop", this->close_endstop_);
@@ -222,13 +223,17 @@ bool SingleControlCover::is_at_target_() const {
   if (this->current_operation == COVER_OPERATION_CLOSING) {
     float stop_position = this->target_position_;
     if (stop_position != COVER_CLOSED && stop_position != COVER_OPEN) {
-      const float reverse_travel = static_cast<float>(this->closing_stop_delay_) / this->open_duration_;
+      const float reverse_travel = static_cast<float>(this->effective_closing_stop_delay_()) / this->open_duration_;
       stop_position = std::max(0.01f, stop_position - reverse_travel);
     }
     return this->position <= stop_position;
   }
 
   return false;
+}
+
+uint32_t SingleControlCover::effective_closing_stop_delay_() const {
+  return std::max(this->closing_stop_delay_, this->button_press_interval_ + CLOSING_STOP_MARGIN_MS);
 }
 
 bool SingleControlCover::is_operation_done_() const {
@@ -343,7 +348,9 @@ bool SingleControlCover::stop_door_() {
   this->last_recompute_time_ = now;
   this->last_activation_time_ = now;
 
-  this->set_timeout("closing-stop-second-press", this->closing_stop_delay_, [this] {
+  const uint32_t second_press_delay = this->effective_closing_stop_delay_();
+  ESP_LOGI(TAG, "Reversing now; stop press scheduled in %.1fs", second_press_delay / 1e3f);
+  this->set_timeout("closing-stop-second-press", second_press_delay, [this] {
     if (!this->closing_stop_pending_)
       return;
 

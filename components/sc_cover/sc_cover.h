@@ -69,6 +69,7 @@ class SingleControlCover : public cover::Cover, public Component {
 
   bool activate_door_();
   bool stop_door_();
+  uint32_t effective_closing_stop_delay_() const;
 
   void open_endstop_callback_(bool state);
   void close_endstop_callback_(bool state);
