@@ -35,8 +35,9 @@ void SingleControlCover::dump_config() {
   ESP_LOGCONFIG(TAG, "  Open Duration: %.1fs", this->open_duration_ / 1e3f);
   LOG_BINARY_SENSOR("  ", "Close Endstop", this->close_endstop_);
   ESP_LOGCONFIG(TAG, "  Close Duration: %.1fs", this->close_duration_ / 1e3f);
-  if (this->operation_timeout_ > 0)
+  if (this->operation_timeout_ > 0) {
     ESP_LOGCONFIG(TAG, " Operation Timeout: %.1fs", this->operation_timeout_ / 1e3f);
+  }
   if (this->motor_power_sensor_ != nullptr) {
     LOG_SENSOR("  ", "Motor Power Sensor", this->motor_power_sensor_);
     ESP_LOGCONFIG(TAG, " Motor Running Threshold: %.1f W", this->motor_running_threshold_);
