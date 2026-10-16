@@ -510,15 +510,21 @@ void SingleControlCover::motor_power_callback_(float power) {
   const uint32_t now = millis();
   const uint32_t transition_time = this->estimate_transition_time_(now);
 
+  const bool endstop_active = this->is_open_() || this->is_closed_();
+
   if (!this->motor_power_initialized_) {
     this->motor_power_initialized_ = true;
     this->motor_running_ = power >= this->motor_running_threshold_;
-    if (this->motor_running_)
+    if (this->motor_running_ && !endstop_active)
       this->start_power_detected_operation_(now, power);
   } else if (!this->motor_running_ && power >= this->motor_running_threshold_) {
     ESP_LOGD(TAG, "Motor started at %.1f W", power);
     this->motor_running_ = true;
-    this->start_power_detected_operation_(transition_time, power);
+    if (endstop_active) {
+      ESP_LOGD(TAG, "Ignoring motor power start while an endstop is active");
+    } else {
+      this->start_power_detected_operation_(transition_time, power);
+    }
   } else if (this->motor_running_ && power <= this->motor_stopped_threshold_) {
     ESP_LOGD(TAG, "Motor stopped at %.1f W", power);
     this->motor_running_ = false;
